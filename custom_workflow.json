@@ -1,0 +1,415 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "fieldToSplitOut": "links",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        0
+      ],
+      "id": "2e7dbaf6-b96f-4044-8d5c-b7dadd55a082",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        448,
+        272
+      ],
+      "id": "2fd80a33-f60b-40f2-8203-3b148c72460e",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "o3-mini-2025-01-31",
+          "mode": "list",
+          "cachedResultName": "O3-MINI-2025-01-31"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Hi, you are a helpful job matcher, you analyze the given resume and job description and providing a job matching score in a json format \n\n\nfor example \n\nyour response should be like\n{\"job_match_score\": 80 }\n\nmake sure you give project json data, dont give any json markdown text and all\n\nmy resume:\n{{ $('resume').item.json.resume }}\n\n\njob_description: \n\n {{ $json.jd }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        1248,
+        464
+      ],
+      "id": "c4bb09e8-5ef2-4ce2-a0e4-f19b13ae2823",
+      "name": "OpenAI",
+      "credentials": {
+        "openAiApi": {
+          "id": "QDlVRQcCeEerAbeh",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "248276288",
+        "text": "=\n\n\n\n\n\nTitle: {{ $('Parse').item.json.title }}\nCompany: {{ $('Parse').item.json.company }}\nLocation: {{ $('Parse').item.json.location }}\nJob Score: {{ $('Edit Fields').item.json.job_match_score }}\nApply: {{ $('Parse').item.json.link }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        992,
+        448
+      ],
+      "id": "1def256c-53ce-4fc4-8da0-1e0153fcc1df",
+      "name": "Telegram",
+      "webhookId": "17b9ebe8-c8d4-4bd9-ad20-45842ddc2c00",
+      "credentials": {
+        "telegramApi": {
+          "id": "210kd2mTeuNVDKXC",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://www.linkedin.com/jobs/search/?keywords=Java%20OR%20%22Spring%20Boot%22%20OR%20Kafka%20OR%20Redis%20OR%20Docker%20OR%20Kubernetes%20OR%20AWS%20OR%20PostgreSQL%20OR%20MongoDB%20OR%20SQL%20OR%20Python%20OR%20Flask%20OR%20Prometheus%20OR%20Grafana%20OR%20TensorFlow%20OR%20PyTorch&location=United%20Kingdom&f_TPR=r10800",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        528,
+        0
+      ],
+      "id": "b51c0ed6-a4d5-4fe2-b757-c55ba7f2359f",
+      "name": "Scrape Last 24 hours Job"
+    },
+    {
+      "parameters": {
+        "language": "python",
+        "pythonCode": "# Loop over input items and add a new field called 'myNewField' to the JSON of each one\nfrom urllib.parse import urlparse, urlunparse\nfrom bs4 import BeautifulSoup\n\n\nhtml = _input.all()[0]['json']['data']\nsoup = BeautifulSoup(html, 'html.parser')\n\njob_links = soup.select('ul.jobs-search__results-list li div a[class*=\"base-card\"]')\n\n\n\njob_urls = []\nfor a_tag in job_links:\n    href = a_tag.get('href')\n    if href:\n\n        parsed = urlparse(href)\n        parsed_new = parsed._replace(netloc=\"www.linkedin.com\")\n        new_url = urlunparse(parsed_new)\n        job_urls.append(new_url)\n\n\n\n\nreturn {\"links\": job_urls}\n\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        912,
+        0
+      ],
+      "id": "22a12b3f-694c-42d0-b8e9-62cef55beda8",
+      "name": "Extract Job Links"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.links }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        864,
+        288
+      ],
+      "id": "286ad797-d2ed-4697-86b2-ac92d7ec8df7",
+      "name": "Scrape Each Job",
+      "retryOnFail": true,
+      "executeOnce": false,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "language": "python",
+        "pythonCode": "from bs4 import BeautifulSoup\n\n\nhtml = _input.all()[0]['json']['data']\nsoup = BeautifulSoup(html, 'html.parser')\n\ntitle = soup.select('div h1')[0].text\ncompany = soup.select('div span a')[0].text.strip()\n\nlocation = soup.select(\"div span[class*='topcard__flavor topcard__flavor--bullet']\")[0].text.strip()\n\njd_container = soup.find(\"div\", class_=\"description__text description__text--rich\")\n\nif jd_container:\n    \n  complete_jd = jd_container.get_text(separator=\"\\n\", strip=True)\n    \nelse:\n    company_jd = \"no jd\"\n\n\nurns = [a.get(\"data-semaphore-content-urn\") for a in soup.select(\"a[data-item-type='semaphore']\")]\n\njob_id =urns[0].split(\":\")[-1]\n\n\napply_link = \"https://www.linkedin.com/jobs/view/\" + job_id\napply_link\n\n\nreturn {\n  \"title\": title,\n  \"company\": company,\n  \"location\": location,\n  \"jd\": complete_jd,\n  \"link\": apply_link\n  \n  \n}\n\n\n\n\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        288
+      ],
+      "id": "b365c122-f0b8-4bbc-8483-a168aa018658",
+      "name": "Parse"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "=\n {{ $json.message.content }}",
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        448,
+        448
+      ],
+      "id": "90f378b8-b60b-4e63-adcc-c2430a363f85",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "amount": 10
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        688,
+        288
+      ],
+      "id": "ea3dd1b8-7a74-4dd0-a37f-03a77aa36d77",
+      "name": "Wait",
+      "webhookId": "c9cb4878-ae4d-4b8e-bd37-5395011f7761"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "075de42f-d3f4-46cf-9e60-41fec9268d95",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "1499f1ac-a7ae-4983-85c7-aa7b8445b2e2",
+              "leftValue": "={{ $json.job_match_score }}",
+              "rightValue": 50,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        672,
+        448
+      ],
+      "id": "14aae984-124e-4a6a-adb1-50055a94dcc4",
+      "name": "Score Filter"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "500890d8-f9a0-4075-8419-664c13f9428f",
+              "name": "resume",
+              "value": "MSc Computer Science (Distinction) from University of Birmingham with 2 years’ backend engineering experience in Java Spring Boot, Kafka, Redis, Docker/Kubernetes, and AWS. At ECS Business Solutions, delivered p95 latency under 95 ms, cut MTTR by 35%, and scaled payments to £2M/day. Built high-reliability messaging/event-driven systems and integrated Prometheus/Grafana for observability. AI/ML projects include optimizing Othello AI agents (16× inference speedup via transposition tables/XLA) and alpha-beta bots with aspiration windows/iterative deepening. Skills: Java, Spring Boot, Kafka, Redis, Docker, Kubernetes, AWS, PostgreSQL, MongoDB, SQL, Flask, Python, Apache Camel, Flyway, Backstage, Prometheus, Grafana, Git, Agile, TensorFlow, PyTorch, NumPy, Pandas, Matplotlib, Scikit-learn, Plotly",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        224,
+        0
+      ],
+      "id": "00d8f589-ba39-47bc-a809-2ee379ec397b",
+      "name": "resume"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrape Last 24 hours Job": {
+      "main": [
+        [
+          {
+            "node": "Extract Job Links",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Job Links": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scrape Each Job": {
+      "main": [
+        [
+          {
+            "node": "Parse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse": {
+      "main": [
+        [
+          {
+            "node": "OpenAI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Score Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Scrape Each Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "resume",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score Filter": {
+      "main": [
+        [
+          {
+            "node": "Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "resume": {
+      "main": [
+        [
+          {
+            "node": "Scrape Last 24 hours Job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "2ea0a58d-27c8-4f84-9a31-252e99b3b71a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e0beed7e7e371f9b86717940091a46bf1db300b4ac04bcaecd0c749bba79e524"
+  },
+  "id": "0BzVS8j3ppt0F322",
+  "tags": []
+}
